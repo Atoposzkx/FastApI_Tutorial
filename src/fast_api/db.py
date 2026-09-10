@@ -29,14 +29,15 @@ from sqlalchemy import (
     Text,
     DateTime,
     Uuid,
+    ForeignKey
 )
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
     async_sessionmaker,
 )
-from sqlalchemy.orm import DeclarativeBase
-
+from sqlalchemy.orm import DeclarativeBase,relationship
+from fastapi_users.db import SQLAlchemyUserDatabase,SQLAlchemyBaseUserTableUUID
 
 # 使用 SQLite 数据库和 aiosqlite 异步驱动。
 # .test.db 是保存数据的本地数据库文件。
@@ -48,6 +49,9 @@ DATABASE_URL = "sqlite+aiosqlite:///.test.db"
 # Base.metadata 会收集这些模型对应的数据表信息。
 class Base(DeclarativeBase):
     pass
+
+class User(SQLAlchemyBaseUserTableUUID,Base):
+    posts = relationship("Post",back_populates="user")
 
 
 # Post 对应数据库中的 posts 表，用来保存文件或媒体帖子的信息。
@@ -64,6 +68,7 @@ class Post(Base):
         default=uuid.uuid4,
     )
 
+    user_id = Column(Uuid,ForeignKey("user.id"),nullable=False)
     # 帖子的文字说明，可以为空。
     caption = Column(Text)
 
@@ -89,6 +94,8 @@ class Post(Base):
         default=datetime.utcnow,
     )
 
+
+    user = relationship("User",back_populates="posts")
 '''
 最终表的样子
 | id   | caption | url    | file_type | file_name | created_at |

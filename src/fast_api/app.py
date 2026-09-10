@@ -17,6 +17,9 @@ from fast_api.schemas import PostCreate,PostResponse
 from fast_api.db import Post,create_db_and_tables,get_async_session,engine
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
+from sqlalchemy import select
+from uuid import UUID
+from fast_api.images import imagekit
 '''
 我们希望：
 
@@ -37,20 +40,109 @@ async def lifespan(app:FastAPI):
     #它只是起一个作用：把“启动阶段”和“关闭阶段”分开
     yield
     #关闭阶段,dispose用于应用关闭时释放数据库连接资源。
+    await imagekit.close()
     await engine.dispose()
 
 #创建 FastAPI 应用，并告诉它：“这个应用的生命周期由 lifespan 函数负责。”
 app = FastAPI(lifespan=lifespan)
 
+'''
+Request body：网页发送给 FastAPI 的数据。
+Response body：FastAPI 通过 return 发送给网页的数据。(在下面的体现就是函数upload_life的返回值)
+'''
 @app.post("/upload")
 async def upload_life(
+    #...表示必填
     file:UploadFile=File(...),
     caption: str = Form(""),
     session:AsyncSession= Depends(get_async_session)
 
 ):
-    pass
+    # content_type 是上传文件的 MIME 类型，例如：
+    # image/jpeg、image/png、video/mp4
 
+    content_type = file.content_type or ""
+     ## 把各种具体格式统一分类成 image 或 video
+    if content_type.startswith("video/"):
+        file_type = "video"
+    elif content_type.startswith("image/"):
+        file_type = "image"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Only image and video files are allowed",
+        )
+
+    file_bytes = await file.read()
+    upload_result = await imagekit.files.upload(
+        file=file_bytes,
+        file_name=file.filename or "upload",
+    )
+
+    if not upload_result.url: 
+        raise HTTPException(status_code=502, detail="ImageKit upload failed")
+
+    post = Post(
+        caption = caption,
+        url = upload_result.url,
+        file_type=file_type,
+        file_name=upload_result.name or file.filename or "upload",
+    )
+    session.add(post)
+    await session.commit()
+    # commit 负责把新增记录提交到数据库；refresh 会再按主键从数据库读取这条记录，
+    # 确保 post 拿到数据库中的最终值（例如自动生成的 id 和 created_at），方便完整返回。refresh 并非每次都绝对必要，但当你需要立即返回数据库生成或处理后的完整数据时，显式刷新更稳妥。
+    await session.refresh(post)
+    return post
+
+
+@app.get("/feed")
+async def get_feed(
+    session:AsyncSession=Depends(get_async_session)
+):
+    #按照时间倒序排列，SQLAlchemy 的查询结果对象。
+    #图书管理员帮你把符合条件的书都找出来，放到推车里。
+    result = await session.execute(select(Post).order_by(Post.created_at.desc()))
+    #scalars() 会直接从查询结果中提取 Post 对象
+    #你把推车里的书一本一本取出来，放进自己的书单列表。
+    #scalars = 取对象，all = 全部拿出来
+    posts = result.scalars().all()
+    #posts = [row[0] for row in result.all()]
+    posts_data = []
+
+    for post in posts:
+        posts_data.append(
+            {
+                "id":str(post.id),
+                "caption":post.caption,
+                "url":post.url,
+                "file_type":post.file_type,
+                "file_name":post.file_name,
+                "created_at":post.created_at.isoformat()
+
+            }
+        )
+
+    return {"posts":posts_data}
+
+
+
+
+@app.delete("/posts/{post_id}")
+async def delete_post(
+    post_id: UUID,
+    session: AsyncSession = Depends(get_async_session),
+):
+    # id 是主键，所以直接使用 session.get() 查询；找不到时返回 None。
+    post = await session.get(Post, post_id)
+
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    await session.delete(post)
+    await session.commit()
+
+    return {"success": True, "message": "Post deleted successfully"}
 
 
 
