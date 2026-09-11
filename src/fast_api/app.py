@@ -9,17 +9,19 @@ uv run python -m fast_api.main
 4. Uvicorn 调用 lifespan。
 5. create_db_and_tables() 根据 Base.metadata 创建 posts 表。
 6. 执行到 yield，FastAPI 开始接收请求。
-7. 当前接口仍然在操作 text_posts 内存字典，还没有真正使用数据库。
+7. 接口通过数据库 Session 操作帖子，上传和删除需要登录。
 8. 关闭服务器时，从 yield 后面继续执行。
 '''
 from fastapi import FastAPI,HTTPException,File,UploadFile,Form,Depends
-from fast_api.schemas import PostCreate,PostResponse
-from fast_api.db import Post,create_db_and_tables,get_async_session,engine
+from fast_api.schemas import UserCreate,UserRead,UserUpdate
+from fast_api.db import User,Post,create_db_and_tables,get_async_session,engine
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
 from sqlalchemy import select
 from uuid import UUID
 from fast_api.images import imagekit
+
+from fast_api.user import auth_backend,current_active_user,fastapi_users
 '''
 我们希望：
 
@@ -46,6 +48,21 @@ async def lifespan(app:FastAPI):
 #创建 FastAPI 应用，并告诉它：“这个应用的生命周期由 lifespan 函数负责。”
 app = FastAPI(lifespan=lifespan)
 
+#这几组自动生成路由挂到 app 上
+
+#Fastapi Users自动生成的登录/登出接口(根据 auth_backend 生成认证相关接口)
+app.include_router(fastapi_users.get_auth_router(auth_backend),prefix='/auth/jwt',tags=["auth"])
+#自动生成注册接口,注册接口需要知道输入 Schema 和输出 Schema。
+app.include_router(fastapi_users.get_register_router(UserRead,UserCreate),prefix="/auth",tags=["auth"])
+#自动生成忘记密码 / 重置密码相关接口
+app.include_router(fastapi_users.get_reset_password_router(),prefix="/auth",tags=["auth"])
+#邮箱/账户验证相关接口。验证完成后要返回用户信息，
+app.include_router(fastapi_users.get_verify_router(UserRead),prefix="/auth",tags=["auth"])
+#这个负责：用户自己的资料接口。因此需要读取用户
+#→ UserRead
+#修改用户
+#→ UserUpdate
+app.include_router(fastapi_users.get_users_router(UserRead,UserUpdate),prefix="/users",tags=["users"])
 '''
 Request body：网页发送给 FastAPI 的数据。
 Response body：FastAPI 通过 return 发送给网页的数据。(在下面的体现就是函数upload_life的返回值)
@@ -55,7 +72,9 @@ async def upload_life(
     #...表示必填
     file:UploadFile=File(...),
     caption: str = Form(""),
-    session:AsyncSession= Depends(get_async_session)
+    session:AsyncSession= Depends(get_async_session),
+    # FastAPI 验证令牌后，将当前登录的用户对象传入这里。
+    current_user: User = Depends(current_active_user),
 
 ):
     # content_type 是上传文件的 MIME 类型，例如：
@@ -83,6 +102,8 @@ async def upload_life(
         raise HTTPException(status_code=502, detail="ImageKit upload failed")
 
     post = Post(
+        # 作者必须来自登录身份，不能由客户端随意指定。
+        user_id=current_user.id,
         caption = caption,
         url = upload_result.url,
         file_type=file_type,
@@ -132,12 +153,17 @@ async def get_feed(
 async def delete_post(
     post_id: UUID,
     session: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
 ):
     # id 是主键，所以直接使用 session.get() 查询；找不到时返回 None。
     post = await session.get(Post, post_id)
 
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
+
+    # 登录只证明“你是谁”；这里继续检查“你是否有权删除”。
+    if post.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own posts")
 
     await session.delete(post)
     await session.commit()

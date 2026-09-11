@@ -17,6 +17,27 @@ SQLite / PostgreSQL
 
 '''
 
+'''
+JWT代码验证
+注册用户
+  ↓
+登录
+  ↓
+FastAPI Users 校验邮箱/密码
+  ↓
+生成 JWT
+  ↓
+客户端以后请求时带上：
+Authorization: Bearer <token>
+  ↓
+current_active_user 验证 JWT
+  ↓
+拿到当前登录的 User
+  ↓
+接口才允许继续执行
+
+user.py 定义 JWT 认证后端，app.py 把登录、注册、用户管理路由挂载进 FastAPI，并且 /upload、删除帖子这些接口开始依赖当前登录用户。
+'''
 
 
 from collections.abc import AsyncGenerator
@@ -38,7 +59,8 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase,relationship
 from fastapi_users.db import SQLAlchemyUserDatabase,SQLAlchemyBaseUserTableUUID
-
+from fastapi_users_db_sqlalchemy.generics import GUID
+from fastapi import Depends
 # 使用 SQLite 数据库和 aiosqlite 异步驱动。
 # .test.db 是保存数据的本地数据库文件。
 #SQLite 可以理解成：一个不需要额外启动数据库服务器的轻量数据库。
@@ -50,8 +72,32 @@ DATABASE_URL = "sqlite+aiosqlite:///.test.db"
 class Base(DeclarativeBase):
     pass
 
+#SQLAlchemyBaseUserTableUUID:FastAPI Users 已经替你定义了很多用户表字段
+#我要创建一个使用 UUID 主键的 FastAPI Users 用户表，同时它也是我项目 SQLAlchemy Base 下的模型。
 class User(SQLAlchemyBaseUserTableUUID,Base):
+    #一个 User 可以通过 .posts 访问属于自己的 Post。
+    ## back_populates 用于双向绑定对方的属性名称
     posts = relationship("Post",back_populates="user")
+
+'''
+relationship：建立 ORM 对象之间的访问关系，不是数据库真正存的一列，双方都写表明这条关系可以双向访问。(用上back_populates两个对象里都得体现，但是在这里只有Post对象里设置对User的外键,所以是一对多，这个通过外键约束)
+ForeignKey：建立数据库层面的关联。
+
+ 一对多判断：
+ 多条 Post 都可以保存同一个 user_id，
+ 但每条 Post 只有一个 user_id。
+ 所以：一个 User -> 多个 Post，一篇 Post -> 一个 User。
+
+ 双向 relationship 不等于多对多。
+ User.posts 和 Post.user 只是同一条一对多关系的两个访问方向。
+
+ 多对多判断：
+ 两边都可以对应多个对象，通常需要第三张中间表保存双方 id。
+
+'''
+
+
+
 
 
 # Post 对应数据库中的 posts 表，用来保存文件或媒体帖子的信息。
@@ -67,8 +113,9 @@ class Post(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-
-    user_id = Column(Uuid,ForeignKey("user.id"),nullable=False)
+    #user_id 保存帖子作者的 UUID，外键指向用户表的 id
+    #ForeignKey("user.id")意思：posts.user_id 必须指向 user 表里的 id。GUID:user_id 保存 UUID 类型。
+    user_id = Column(GUID,ForeignKey("user.id"),nullable=False)
     # 帖子的文字说明，可以为空。
     caption = Column(Text)
 
@@ -94,7 +141,13 @@ class Post(Base):
         default=datetime.utcnow,
     )
 
+    '''
+    post.user_id
+→ 作者 ID
 
+post.user
+→ 作者这个完整 User 对象
+    '''
     user = relationship("User",back_populates="posts")
 '''
 最终表的样子
@@ -180,6 +233,9 @@ conn
         )
 
 
+
+
+
 # 作为 FastAPI 依赖提供 Session，请求结束后会自动关闭会话。
 
 #Session 可以理解成：一次数据库操作上下文
@@ -201,6 +257,11 @@ Session
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session
+
+
+#获取数据库中的数据
+async def get_user_db(session:AsyncSession=Depends(get_async_session)):
+    yield SQLAlchemyUserDatabase(session,User)
 
 #异步函数与普通函数最大区别是，异步中可以用await
 

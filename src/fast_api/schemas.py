@@ -1,4 +1,6 @@
 from pydantic import BaseModel
+from fastapi_users import schemas
+import uuid
 #专门放 Pydantic 数据模型 的文件
 '''
 客户端传来的 JSON
@@ -28,3 +30,28 @@ class PostCreate(BaseModel):
 class PostResponse(BaseModel):
     title:str
     content:str
+
+#FastAPI Users 已经帮你写好了通用用户 Schema，你这里只是在继承它们。
+
+#它负责：后端返回用户信息时，允许返回什么。
+class UserRead(schemas.BaseUser[uuid.UUID]):
+    pass
+#它负责：注册用户时，客户端允许传什么
+class UserCreate(schemas.BaseUserCreate):
+    pass
+
+class UserUpdate(schemas.BaseUserUpdate):
+    pass
+
+
+
+'''
+UserCreate
+= 注册时输入
+
+UserRead
+= 返回给客户端
+
+UserUpdate
+= 修改用户时输入
+'''
