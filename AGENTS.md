@@ -2,30 +2,34 @@
 
 ## Project Structure & Module Organization
 
-Application code lives under `src/fast_api/`. `app.py` defines the FastAPI application and HTTP routes; `main.py` is the Uvicorn entry point. Database models, the async SQLAlchemy engine, and session dependency live in `db.py`. Keep Pydantic request and response models in `schemas.py`, ImageKit setup in `images.py`, and user-related code in `user.py`. The repository currently has no committed test or static-asset directories. Add tests under `tests/`, mirroring source modules when practical (for example, `tests/test_app.py`).
+Application code lives in `src/fast_api/`. `app.py` owns the FastAPI application, authentication routers, media upload, feed, and delete endpoints. `db.py` contains the `User` and `Post` SQLAlchemy models, async SQLite engine, and session dependencies. Keep JWT and FastAPI Users configuration in `user.py`, Pydantic schemas in `schemas.py`, ImageKit setup in `images.py`, and Uvicorn startup in `main.py`.
 
-## Build, Test, and Development Commands
+`frontend.py` is the Streamlit client. It calls the API at `http://localhost:8000` and stores the JWT in Streamlit session state. Tests live in `tests/`; `tests/test_auth_posts.py` uses an in-memory SQLite database and mocks ImageKit uploads.
 
-- `uv sync`: create or update `.venv` from `pyproject.toml` and `uv.lock`.
-- `uv run python -m fast_api.main`: run the application through its Python entry point.
-- `uv run uvicorn fast_api.app:app --reload`: start the development server with automatic reload.
-- `uv run python -m py_compile src/fast_api/*.py`: perform a quick syntax check.
-- `uv run pytest`: run tests after pytest is added to the development dependencies.
+## Development and Verification Commands
 
-API documentation is available at `http://127.0.0.1:8000/docs` while the server is running.
+- `uv sync`: install the locked dependencies into `.venv`.
+- `uv run python -m fast_api.main`: run the backend with reload on port 8000.
+- `uv run streamlit run frontend.py`: run the frontend on port 8501.
+- `uv run python -m unittest discover -s tests -v`: run the test suite.
+- `uv run python -m py_compile src/fast_api/*.py frontend.py`: check syntax.
 
-## Coding Style & Naming Conventions
+Backend API documentation is available at `http://localhost:8000/docs`.
 
-Use Python 3.12 syntax, four-space indentation, and PEP 8 spacing. Use `snake_case` for modules, variables, and functions; use `PascalCase` for SQLAlchemy models and Pydantic schemas. Add type annotations to route parameters, return models, and reusable helpers. Keep route functions focused: validation belongs in schemas, persistence in database helpers/models, and external media configuration in `images.py`. No formatter or linter is configured yet; avoid unrelated formatting changes.
+## Coding Style & Architecture
+
+Use Python 3.12 syntax, four-space indentation, PEP 8 spacing, and type annotations. Use `snake_case` for functions and variables and `PascalCase` for ORM and Pydantic classes. Keep route handlers focused and preserve the dependency chain `get_async_session` → `get_user_db` → `get_user_manager`.
+
+Protected endpoints must use `Depends(current_active_user)`. Derive post ownership from `current_user.id`; never trust a client-supplied user ID. Keep authorization checks in the backend even when the frontend hides controls.
 
 ## Testing Guidelines
 
-No automated test framework or coverage threshold is currently configured. New endpoint behavior should include pytest tests named `test_<behavior>`. Use FastAPI's test client or `httpx.AsyncClient`, and isolate database tests with a temporary SQLite database. Mock ImageKit calls so tests do not upload real files or require credentials.
+Add `unittest` tests named `test_<behavior>` for endpoint changes. Use an isolated database and mock external ImageKit requests. Cover anonymous access, authenticated success, ownership rules, and relevant errors. Tests must not modify `.test.db` or upload real files.
 
 ## Commit & Pull Request Guidelines
 
-History uses short feature-focused messages, including Conventional Commit prefixes. Prefer messages such as `feat: add post deletion endpoint`, `fix: validate uploaded media type`, or `docs: explain database session lifecycle`. Keep each commit scoped to one logical change. Pull requests should describe behavior changes, list verification commands, link relevant issues, and include sample requests/responses for API changes.
+Prefer short, feature-focused Conventional Commit messages, such as `feat: add authenticated media upload` or `fix: enforce post ownership`. Keep commits scoped to one logical change. Pull requests should explain behavior changes, list verification commands, and include sample requests or screenshots when UI behavior changes.
 
 ## Security & Configuration
 
-Keep `.env`, ImageKit private keys, virtual environments, and local SQLite files out of commits. Document required variable names, such as `IMAGEKIT_PRIVATE_KEY`, without including values. Never use production credentials in tests.
+Keep `.env`, `.test.db`, credentials, and virtual environments out of Git. Required configuration includes `AUTH_SECRET` and `IMAGEKIT_PRIVATE_KEY`; `IMAGEKIT_URL_ENDPOINT` is optional. Never log passwords, JWTs, reset tokens, verification tokens, or private keys. `create_all()` does not migrate existing tables; use migrations or recreate only disposable local databases after model changes.
