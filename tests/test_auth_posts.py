@@ -73,6 +73,12 @@ class AuthPostTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         post_id = response.json()["id"]
+        for headers, is_owner in ((owner, True), (other, False)):
+            feed = await self.client.get("/feed", headers=headers)
+            self.assertEqual(feed.status_code, 200, feed.text)
+            post = feed.json()["posts"][0]
+            self.assertEqual(post["email"], "owner@example.com")
+            self.assertIs(post["is_owner"], is_owner)
         async with self.sessions() as session:
             # 实际执行关联查询，检查作者外键的存储格式与用户主键一致。
             row = (await session.execute(select(Post, User).join(Post.user))).one()

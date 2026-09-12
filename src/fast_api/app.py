@@ -18,6 +18,7 @@ from fast_api.db import User,Post,create_db_and_tables,get_async_session,engine
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from uuid import UUID
 from fast_api.images import imagekit
 
@@ -62,6 +63,7 @@ app.include_router(fastapi_users.get_verify_router(UserRead),prefix="/auth",tags
 #→ UserRead
 #修改用户
 #→ UserUpdate
+#get_users_router：返回用户查询、修改、删除等多个接口
 app.include_router(fastapi_users.get_users_router(UserRead,UserUpdate),prefix="/users",tags=["users"])
 '''
 Request body：网页发送给 FastAPI 的数据。
@@ -161,11 +163,17 @@ all
 '''
 @app.get("/feed")
 async def get_feed(
-    session:AsyncSession=Depends(get_async_session)
+    session:AsyncSession=Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+
 ):
     #按照时间倒序排列，SQLAlchemy 的查询结果对象。
     #图书管理员帮你把符合条件的书都找出来，放到推车里。
-    result = await session.execute(select(Post).order_by(Post.created_at.desc()))
+    #result = await session.execute(select(Post).order_by(Post.created_at.desc()))
+    # 提前批量加载作者，避免在异步环境访问 post.user 时触发隐式数据库查询。
+    result = await session.execute(
+        select(Post).options(selectinload(Post.user)).order_by(Post.created_at.desc())
+    )
     #scalars() 会直接从查询结果中提取 Post 对象
     #你把推车里的书一本一本取出来，放进自己的书单列表。
     #scalars = 取对象，all = 全部拿出来
@@ -181,7 +189,10 @@ async def get_feed(
                 "url":post.url,
                 "file_type":post.file_type,
                 "file_name":post.file_name,
-                "created_at":post.created_at.isoformat()
+                "created_at":post.created_at.isoformat(),
+                "email":post.user.email,
+                # 前端据此显示删除按钮；真正的权限仍由删除接口检查。
+                "is_owner":post.user_id == current_user.id,
 
             }
         )

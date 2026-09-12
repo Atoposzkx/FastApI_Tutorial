@@ -9,3 +9,9 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# Local SQLite data
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
