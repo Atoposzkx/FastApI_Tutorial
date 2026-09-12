@@ -116,7 +116,49 @@ async def upload_life(
     await session.refresh(post)
     return post
 
+'''
+正确过程是：
+select(Post)
+先构造：
+“我要查询 Post”这个 SQLAlchemy 查询语句。
 
+然后：
+result = await session.execute(select(Post))
+是：
+使用 Session 把这个查询真正发给数据库执行。
+
+得到的是：
+SQLAlchemy Result 对象
+还不是：
+[Post1, Post2]
+然后：
+result.scalars()
+从每一行里提取：
+Post 对象
+最后：
+.all()
+把所有对象收集成：
+[
+    Post(...),
+    Post(...),
+    Post(...)
+]
+所以记：
+select
+= 定义查什么
+
+execute
+= 真正执行查询
+
+scalars
+= 从结果行提取对象
+
+all
+= 全部装进列表
+你当前 /feed 就是这套流程。
+
+
+'''
 @app.get("/feed")
 async def get_feed(
     session:AsyncSession=Depends(get_async_session)

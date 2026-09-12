@@ -73,7 +73,15 @@ class Base(DeclarativeBase):
     pass
 
 #SQLAlchemyBaseUserTableUUID:FastAPI Users 已经替你定义了很多用户表字段
-#我要创建一个使用 UUID 主键的 FastAPI Users 用户表，同时它也是我项目 SQLAlchemy Base 下的模型。
+#我要创建一个使用 UUID 主键的 FastAPI Users 用户表，同时它也是我项目 SQLAlchemy Base 下的模型。 这是 SQLAlchemy 数据库 Model，描述数据库中的 User 表
+#User= 数据库 Schema / ORM Model  UserCreate / UserRead / UserUpdate= API 数据 Schema
+'''
+数据库世界           HTTP 世界
+
+User                 UserCreate
+                     UserRead
+                     UserUpdate
+'''
 class User(SQLAlchemyBaseUserTableUUID,Base):
     #一个 User 可以通过 .posts 访问属于自己的 Post。
     ## back_populates 用于双向绑定对方的属性名称
@@ -147,6 +155,8 @@ class Post(Base):
 
 post.user
 → 作者这个完整 User 对象
+
+建立 ORM 对象访问关系，使得可以通过 post.user 得到 User 对象。
     '''
     user = relationship("User",back_populates="posts")
 '''
@@ -253,6 +263,11 @@ Session
 ├─ 删除数据
 ├─ commit
 └─ rollback
+session.get()
+= 按主键查一条
+
+select(...).where(...)
+= 按条件查询
 '''
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:

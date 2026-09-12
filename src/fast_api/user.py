@@ -65,6 +65,16 @@ async def get_user_manager(user_db:SQLAlchemyUserDatabase=Depends(get_user_db)):
 
 #这个BearerTransport规定JWT从请求Header的Bearer位置传来
 #Bearer 指的是 HTTP Header 的这种格式：Authorization: Bearer eyJhbGciOi...
+'''
+Authorization
+= HTTP Header 的名字
+
+Bearer
+= Authorization 使用的认证方案 / scheme
+
+eyJ...
+= 真正的 JWT Token
+'''
 #tokenUrl 则告诉 FastAPI/OpenAPI：登录拿 Token 的接口在哪里。
 bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")
 
@@ -93,10 +103,49 @@ auth_backend = AuthenticationBackend(
 '''本质是：对象 = 类(
     参数1,
     参数2
-)'''
+)
+FastAPIUsers
+= 创建 FastAPI Users 核心对象
+
+[User, uuid.UUID]
+= 类型信息
+  User 是用户 Model
+  uuid.UUID 是用户 ID 类型
+
+get_user_manager
+= 告诉它怎么获得 UserManager
+
+[auth_backend]
+= 告诉它支持哪些认证方式
+
+'''
 fastapi_users = FastAPIUsers[User,uuid.UUID](get_user_manager,[auth_backend])
+
+
 #检查请求里的 JWT，并返回当前已经登录且处于 active 状态的用户
+#创建一个以后用来认证用户的 Dependency。
+'''
+请求
+↓
+Depends(current_active_user)
+↓
+检查 Authorization Header
+↓
+读取 Bearer JWT
+↓
+验证 JWT
+↓
+找到对应 User
+↓
+检查 active=True
+↓
+返回 User
+↓
+赋值给 current_user
+'''
 current_active_user = fastapi_users.current_user(active=True)
+
+
 
 '''
 SQLAlchemyBaseUserTableUUID
